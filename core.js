@@ -120,7 +120,9 @@ const hex2=h=>{h=String(h||"#3d4a26").replace("#","");if(h.length===3)h=h.split(
 const mixc=(a,b,t)=>a.map((v,i)=>v*(1-t)+b[i]*t);
 function snapshotInvoice(inv){if(!inv||inv.snapshot)return inv;inv.snapshot=JSON.parse(JSON.stringify({settings:db.settings,client:cl(inv.client),course:db.courses.find(x=>x.id===inv.course)||null}));inv.snapshotAt=Date.now();inv._updatedAt=Math.max(inv.snapshotAt,+inv._updatedAt||0);return inv}
 function snapshotExistingInvoices(){for(const inv of db?.factures||[])snapshotInvoice(inv)}
-async function buildInvoicePdf(inv,cOver,coOver){const s=inv.snapshot?.settings||db.settings,c=cOver||inv.snapshot?.client||cl(inv.client),co=coOver||inv.snapshot?.course||db.courses.find(x=>x.id===inv.course)||null;
+/* Réglages utilisés pour le PDF : la copie figée à l'émission, mais toute information société vide à ce moment-là (nom, adresse, SIRET…) est reprise des réglages actuels. */
+function invoiceSettings(inv){const live=db.settings||{},snap=inv.snapshot?.settings;if(!snap)return live;const s=Object.assign({},live);for(const k of Object.keys(snap))if(snap[k]!==""&&snap[k]!=null)s[k]=snap[k];return s}
+async function buildInvoicePdf(inv,cOver,coOver){const s=invoiceSettings(inv),c=cOver||inv.snapshot?.client||cl(inv.client),co=coOver||inv.snapshot?.course||db.courses.find(x=>x.id===inv.course)||null;
 const dev=inv.statut==="devis",paid=inv.statut==="payée",band=s.pdfStyle==="band";
 const G=[0.13,0.15,0.1],GR=[0.4,0.42,0.36],COL=hex2(s.pdfColor),WH=[1,1,1],LT=mixc(COL,WH,0.9),LN=mixc(COL,WH,0.6);
 const pages=[[]];const Y=t=>842-t;
