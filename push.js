@@ -27,14 +27,17 @@ async function pushSyncSchedule(source=db){
   }
   return pushInvoke({action:"schedule",reminders});
 }
+/* Message plus long que le toast habituel pour que l'échec d'activation ne passe pas inaperçu. */
+function pushToast(m){toast(m);try{clearTimeout(toast.t);toast.t=setTimeout(()=>$("#toast")?.classList.remove("show"),8000)}catch{}}
 async function enablePushNotifications(){
-  if(!cloudUser||!sb)return toast("Connectez-vous à votre compte pour activer les rappels en arrière-plan.");
-  if(!("serviceWorker" in navigator)||!("PushManager" in window)||!("Notification" in window))return toast("Les notifications push ne sont pas prises en charge par ce navigateur.");
-  if(/iPhone|iPad|iPod/i.test(navigator.userAgent)&&!navigator.standalone&&!matchMedia("(display-mode: standalone)").matches)return toast("Sur iPhone/iPad, ajoutez d’abord Cabpilot à l’écran d’accueil, puis ouvrez l’app depuis son icône.");
+  if(!cloudUser||!sb)return pushToast("Connectez-vous à votre compte pour activer les rappels en arrière-plan.");
+  if(!("serviceWorker" in navigator)||!("PushManager" in window)||!("Notification" in window))return pushToast("Les notifications push ne sont pas prises en charge par ce navigateur.");
+  if(/iPhone|iPad|iPod/i.test(navigator.userAgent)&&!navigator.standalone&&!matchMedia("(display-mode: standalone)").matches)return pushToast("Sur iPhone/iPad, ajoutez d’abord Cabpilot à l’écran d’accueil, puis ouvrez l’app depuis son icône.");
+  pushToast("Activation des rappels en cours…");
   try{
     const permission=Notification.permission==="granted"?"granted":await Notification.requestPermission();
-    if(permission!=="granted")return toast("Autorisez les notifications dans les réglages de l’appareil pour recevoir les rappels.");
-    const registration=await navigator.serviceWorker.ready;
+    if(permission!=="granted")return pushToast("Autorisez les notifications dans les réglages de l’appareil pour recevoir les rappels.");
+    const registration=await Promise.race([navigator.serviceWorker.ready,new Promise((_,rej)=>setTimeout(()=>rej(new Error("le service de l’application n’est pas prêt. Rechargez la page puis réessayez")),8000))]);
     const{public_key}=await pushInvoke({action:"public_key"});
     if(!public_key)throw new Error("La clé publique des notifications n’est pas configurée.");
     let subscription=await registration.pushManager.getSubscription();
@@ -42,9 +45,9 @@ async function enablePushNotifications(){
     await pushInvoke({action:"subscribe",subscription:subscription.toJSON()});
     await pushSyncSchedule(db);
     localStorage.setItem(pushLocalKey(cloudUser.id),"1");
-    toast("Rappels en arrière-plan activés sur cet appareil.");
+    pushToast("Rappels en arrière-plan activés sur cet appareil.");
     go(true);
-  }catch(error){toast(`Activation impossible : ${error?.message||"réessayez plus tard"}`)}
+  }catch(error){pushToast(`Activation impossible : ${error?.message||"réessayez plus tard"}`)}
 }
 async function disablePushNotifications(){
   if(!cloudUser||!sb)return toast("Connectez-vous au compte associé à cet appareil.");
