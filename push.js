@@ -1,6 +1,12 @@
 const pushLocalKey=id=>`slm_web_push_${String(id||"").replace(/[^a-zA-Z0-9_-]/g,"_")}`;
 function pushDeviceActive(){return !!cloudUser&&localStorage.getItem(pushLocalKey(cloudUser.id))==="1"}
-async function refreshPushDeviceState(userId=cloudUser?.id){if(!userId||!("serviceWorker" in navigator))return;try{const registration=await navigator.serviceWorker.getRegistration(),subscription=registration&&await registration.pushManager.getSubscription();if(!subscription)localStorage.removeItem(pushLocalKey(userId))}catch{}}
+const pushHealed=new Set();
+/* Au démarrage : si l'appareil se croit « actif », on vérifie que l'abonnement existe aussi côté serveur (il est supprimé s'il expire ou à une déconnexion) et on le ré-enregistre sinon. */
+async function refreshPushDeviceState(userId=cloudUser?.id){if(!userId||!("serviceWorker" in navigator))return;try{const registration=await navigator.serviceWorker.getRegistration();if(!registration)return;let subscription=await registration.pushManager.getSubscription();const wasOn=localStorage.getItem(pushLocalKey(userId))==="1";
+  if(!subscription){if(wasOn&&"Notification" in window&&Notification.permission==="granted"&&sb){try{const{public_key}=await pushInvoke({action:"public_key"});if(public_key)subscription=await registration.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:pushBase64Bytes(public_key)})}catch{}}
+    if(!subscription){localStorage.removeItem(pushLocalKey(userId));return}}
+  if(wasOn&&sb&&!pushHealed.has(userId)){pushHealed.add(userId);try{await pushInvoke({action:"subscribe",subscription:subscription.toJSON()});if(db)await pushSyncSchedule(db)}catch{pushHealed.delete(userId)}}
+ }catch{}}
 function pushBase64Bytes(value){const padded=value+"=".repeat((4-value.length%4)%4),raw=atob(padded.replace(/-/g,"+").replace(/_/g,"/"));return Uint8Array.from(raw,c=>c.charCodeAt(0))}
 async function pushInvoke(body){if(!sb)throw new Error("Supabase n’est pas disponible.");const{data,error}=await sb.functions.invoke("push-reminders",{body});if(error)throw new Error(error.message||"Impossible de joindre le service de notifications.");if(data?.error)throw new Error(data.error);return data||{}}
 async function pushSyncSchedule(source=db){
