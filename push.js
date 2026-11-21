@@ -29,25 +29,31 @@ async function pushSyncSchedule(source=db){
 }
 /* Message plus long que le toast habituel pour que l'échec d'activation ne passe pas inaperçu. */
 function pushToast(m){toast(m);try{clearTimeout(toast.t);toast.t=setTimeout(()=>$("#toast")?.classList.remove("show"),8000)}catch{}}
+const pushWait=(promise,ms,label)=>Promise.race([promise,new Promise((_,rej)=>setTimeout(()=>rej(new Error(label+" : pas de réponse au bout de "+Math.round(ms/1000)+" s")),ms))]);
 async function enablePushNotifications(){
   if(!cloudUser||!sb)return pushToast("Connectez-vous à votre compte pour activer les rappels en arrière-plan.");
   if(!("serviceWorker" in navigator)||!("PushManager" in window)||!("Notification" in window))return pushToast("Les notifications push ne sont pas prises en charge par ce navigateur.");
   if(/iPhone|iPad|iPod/i.test(navigator.userAgent)&&!navigator.standalone&&!matchMedia("(display-mode: standalone)").matches)return pushToast("Sur iPhone/iPad, ajoutez d’abord Cabpilot à l’écran d’accueil, puis ouvrez l’app depuis son icône.");
-  pushToast("Activation des rappels en cours…");
+  if(Notification.permission==="denied")return pushToast("Les notifications sont bloquées pour Cabpilot. Autorisez-les dans les réglages Android (Applis → Cabpilot ou Chrome → Notifications), puis réessayez.");
+  let step="autorisation";
   try{
+    pushToast("Étape 1/4 : autorisation des notifications…");
     const permission=Notification.permission==="granted"?"granted":await Notification.requestPermission();
     if(permission!=="granted")return pushToast("Autorisez les notifications dans les réglages de l’appareil pour recevoir les rappels.");
-    const registration=await Promise.race([navigator.serviceWorker.ready,new Promise((_,rej)=>setTimeout(()=>rej(new Error("le service de l’application n’est pas prêt. Rechargez la page puis réessayez")),8000))]);
-    const{public_key}=await pushInvoke({action:"public_key"});
+    step="service de l’application";pushToast("Étape 2/4 : préparation de l’application…");
+    const registration=await pushWait(navigator.serviceWorker.ready,8000,"Service de l’application non prêt, rechargez la page");
+    step="clé de notification";pushToast("Étape 3/4 : connexion au serveur…");
+    const{public_key}=await pushWait(pushInvoke({action:"public_key"}),15000,"Serveur de notifications");
     if(!public_key)throw new Error("La clé publique des notifications n’est pas configurée.");
+    step="abonnement de l’appareil";pushToast("Étape 4/4 : abonnement de l’appareil…");
     let subscription=await registration.pushManager.getSubscription();
-    if(!subscription)subscription=await registration.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:pushBase64Bytes(public_key)});
-    await pushInvoke({action:"subscribe",subscription:subscription.toJSON()});
-    await pushSyncSchedule(db);
+    if(!subscription)subscription=await pushWait(registration.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:pushBase64Bytes(public_key)}),20000,"Abonnement Google/Android (vérifiez que Google Play Services et la connexion fonctionnent)");
+    await pushWait(pushInvoke({action:"subscribe",subscription:subscription.toJSON()}),15000,"Enregistrement sur le serveur");
+    try{await pushSyncSchedule(db)}catch{}
     localStorage.setItem(pushLocalKey(cloudUser.id),"1");
     pushToast("Rappels en arrière-plan activés sur cet appareil.");
     go(true);
-  }catch(error){pushToast(`Activation impossible : ${error?.message||"réessayez plus tard"}`)}
+  }catch(error){pushToast(`Activation impossible à l’étape « ${step} » : ${error?.message||"réessayez plus tard"}`)}
 }
 async function disablePushNotifications(){
   if(!cloudUser||!sb)return toast("Connectez-vous au compte associé à cet appareil.");
